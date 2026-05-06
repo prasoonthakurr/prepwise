@@ -4,6 +4,7 @@ import { generateObject } from "ai";
 import { google } from "@ai-sdk/google";
 
 import { db } from "@/firebase/admin";
+import { FieldPath } from "firebase-admin/firestore";
 import { feedbackSchema } from "@/constants";
 
 export async function createFeedback(params: CreateFeedbackParams) {
@@ -23,20 +24,25 @@ export async function createFeedback(params: CreateFeedbackParams) {
       }),
       schema: feedbackSchema,
       prompt: `
-        You are an AI interviewer analyzing a mock interview. Your task is to evaluate the candidate based on structured categories. Be thorough and detailed in your analysis. Don't be lenient with the candidate. If there are mistakes or areas for improvement, point them out.
+        You are an AI interviewer analyzing a mock interview. Your task is to evaluate the candidate in detail and generate structured feedback.
 
         Transcript:
         ${formattedTranscript}
 
-        Please score the candidate from 0 to 100 in the following areas. Do not add categories other than the ones provided:
+        For each category below, give a score from 0 to 100 and a comment that is at least 2 sentences long. Use the exact category names provided.
         - Communication Skills: Clarity, articulation, structured responses.
         - Technical Knowledge: Understanding of key concepts for the role.
-        - Problem-Solving: Ability to analyze problems and propose solutions.
-        - Cultural & Role Fit: Alignment with company values and job role.
-        - Confidence & Clarity: Confidence in responses, engagement, and clarity.
+        - Problem Solving: Ability to analyze problems and propose solutions.
+        - Cultural Fit: Alignment with company values and job role.
+        - Confidence and Clarity: Confidence in responses, engagement, and clarity.
+
+        Also provide:
+        - strengths: a list of at least 3 specific strengths
+        - areasForImprovement: a list of at least 3 specific areas to improve
+        - finalAssessment: a short paragraph summarizing the candidate's overall performance and top recommendation
       `,
       system:
-        "You are a professional interviewer analyzing a mock interview. Your task is to evaluate the candidate based on structured categories.",
+        "You are a professional interviewer analyzing a mock interview. You should be honest, specific, and detailed in your feedback.",
     });
 
     const feedback = {
@@ -125,15 +131,41 @@ export async function getLatestInterviews(
 export async function getInterviewsByUserId(
   userId: string
 ): Promise<Interview[] | null> {
-  const interviews = await db
-    .collection("interviews")
-    .orderBy("createdAt", "desc")
+  const feedbackSnapshot = await db
+    .collection("feedback")
+    .where("userId", "==", userId)
     .get();
 
-  return interviews.docs
-    .filter((doc) => doc.data().userId === userId)
-    .map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    })) as Interview[];
+  if (feedbackSnapshot.empty) return [];
+
+  const interviewIds = Array.from(
+    new Set(
+      feedbackSnapshot.docs
+        .map((doc) => doc.data().interviewId)
+        .filter(Boolean) as string[]
+    )
+  );
+
+  if (!interviewIds.length) return [];
+
+  const interviews: Interview[] = [];
+
+  for (let i = 0; i < interviewIds.length; i += 10) {
+    const chunk = interviewIds.slice(i, i + 10);
+    const snapshot = await db
+      .collection("interviews")
+      .where(FieldPath.documentId(), "in", chunk)
+      .get();
+
+    interviews.push(
+      ...snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as Interview[]
+    );
+  }
+
+  return interviews.sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
 }

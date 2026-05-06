@@ -22,6 +22,16 @@ const Feedback = async ({ params }: RouteParams) => {
     userId: user?.id!,
   });
 
+  const categoryScores = Array.isArray(feedback?.categoryScores)
+    ? feedback.categoryScores
+    : feedback?.categoryScores
+      ? Object.entries(feedback.categoryScores).map(([name, score]) => ({
+          name,
+          score: typeof score === "number" ? score : 0,
+          comment: "",
+        }))
+      : [];
+
   return (
     <section className="section-feedback">
       <div className="flex flex-row justify-center">
@@ -64,7 +74,7 @@ const Feedback = async ({ params }: RouteParams) => {
       {/* Interview Breakdown */}
       <div className="flex flex-col gap-4">
         <h2>Breakdown of the Interview:</h2>
-        {feedback?.categoryScores?.map((category, index) => (
+        {categoryScores.map((category, index) => (
           <div key={index}>
             <p className="font-bold">
               {index + 1}. {category.name} ({category.score}/100)
